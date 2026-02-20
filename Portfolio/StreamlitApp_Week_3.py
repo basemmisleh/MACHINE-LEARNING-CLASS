@@ -55,13 +55,24 @@ sm_session = sagemaker.Session(boto_session=session)
 # Data & Model Configuration
 df_features = extract_features()
 
+FEATURE_ORDER = [
+    "MSFT", "NVDA", "GOOGL", "INTC", "IBM",
+    "DEXJPUS", "DEXUSUK",
+    "SP500", "DJIA", "VIXCLS",
+    "COST_MA5", "COST_MA20", "COST_VOL10", "COST_RANGE"
+]
+
 MODEL_INFO = {
-        "endpoint": aws_endpoint,
-        "explainer": 'explainer.shap',
-        "pipeline": 'finalized_model.tar.gz',
-        "keys": ["GOOGL", "IBM", "DEXJPUS", "DEXUSUK", "SP500", "DJIA", "VIXCLS"],
-        "inputs": [{"name": k, "type": "number", "min": -1.0, "max": 1.0, "default": 0.0, "step": 0.01} for k in ["GOOGL", "IBM", "DEXJPUS", "DEXUSUK", "SP500", "DJIA", "VIXCLS"]]
+    "endpoint": aws_endpoint,
+    "explainer": "explainer.shap",
+    "pipeline": "finalized_model.tar.gz",
+    "keys": FEATURE_ORDER,
+    "inputs": [
+        {"name": k, "type": "number", "min": -1.0, "max": 1.0, "default": 0.0, "step": 0.01}
+        for k in FEATURE_ORDER
+    ]
 }
+
 
 def load_pipeline(_session, bucket, key):
     s3_client = _session.client('s3')
@@ -139,18 +150,17 @@ with st.form("pred_form"):
     submitted = st.form_submit_button("Run Prediction")
 
 if submitted:
+    # Build EXACTLY one row in the correct order
+    input_df = pd.DataFrame([[user_inputs[k] for k in MODEL_INFO["keys"]]], columns=MODEL_INFO["keys"])
 
-    data_row = [user_inputs[k] for k in MODEL_INFO["keys"]]
-    # Prepare data
-    base_df = df_features
-    input_df = pd.concat([base_df, pd.DataFrame([data_row], columns=base_df.columns)])
-    
-    res, status = call_model_api(input_df)
+    res, status = call_model_api(input_df.to_numpy())
     if status == 200:
         st.metric("Prediction Result", res)
-        display_explanation(input_df,session, aws_bucket)
+        display_explanation(input_df, session, aws_bucket)
     else:
         st.error(res)
+
+
 
 
 
