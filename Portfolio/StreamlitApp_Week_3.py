@@ -121,15 +121,26 @@ def call_model_api(input_df):
 # Local Explainability
 def display_explanation(input_df, session, aws_bucket):
     explainer_name = MODEL_INFO["explainer"]
-    explainer = load_shap_explainer(session, aws_bucket, posixpath.join('explainer', explainer_name),os.path.join(tempfile.gettempdir(), explainer_name))
+    explainer = load_shap_explainer(
+        session,
+        aws_bucket,
+        posixpath.join('explainer', explainer_name),
+        os.path.join(tempfile.gettempdir(), explainer_name)
+    )
+
     shap_values = explainer(input_df)
+
     st.subheader("🔍 Decision Transparency (SHAP)")
-    fig, ax = plt.subplots(figsize=(10, 4))
-    shap.plots.waterfall(shap_values[0], max_display=10)
-    st.pyplot(fig)
-    # top feature   
+
+    # Control figure size properly
+    plt.figure(figsize=(6, 3))
+    shap.plots.waterfall(shap_values[0], max_display=8, show=False)
+    st.pyplot(plt.gcf())
+    plt.close()
+
     top_feature = shap_values[0].feature_names[0]
     st.info(f"**Business Insight:** The most influential factor in this decision was **{top_feature}**.")
+
 
 # Streamlit UI
 st.set_page_config(page_title="ML Deployment", layout="wide")
@@ -150,15 +161,24 @@ with st.form("pred_form"):
     submitted = st.form_submit_button("Run Prediction")
 
 if submitted:
-    # Build EXACTLY one row in the correct order
-    input_df = pd.DataFrame([[user_inputs[k] for k in MODEL_INFO["keys"]]], columns=MODEL_INFO["keys"])
+    input_df = pd.DataFrame(
+        [[user_inputs[k] for k in MODEL_INFO["keys"]]],
+        columns=MODEL_INFO["keys"]
+    )
 
     res, status = call_model_api(input_df.to_numpy())
+
     if status == 200:
         st.metric("Prediction Result", res)
-        display_explanation(input_df, session, aws_bucket)
+        st.caption("Predicted COST future return (decimal form). Example: 0.0044 = 0.44%.")
+
+        if st.checkbox("Show SHAP Explanation"):
+            display_explanation(input_df, session, aws_bucket)
+
     else:
         st.error(res)
+
+
 
 
 
