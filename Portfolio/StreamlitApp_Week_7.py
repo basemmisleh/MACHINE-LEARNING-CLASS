@@ -152,8 +152,8 @@ def display_explanation(input_df, session, aws_bucket):
 
 # ── Streamlit UI ──────────────────────────────────────────────────────────────
 # CHANGE 4: Updated title to reflect HW4 pair
-st.set_page_config(page_title="Pairs Trading Signal — GOOGL/GOOG", layout="wide")
-st.title("📈 Pairs Trading Signal — GOOGL / GOOG")
+st.set_page_config(page_title="Pairs Trading Signal — GOOGL/ADI", layout="wide")
+st.title("📈 Pairs Trading Signal — GOOGL / ADI")
 st.markdown("Enter the current stock prices for the pair. The model will predict the trading signal for **GOOGL**.")
 
 with st.form("pred_form"):
