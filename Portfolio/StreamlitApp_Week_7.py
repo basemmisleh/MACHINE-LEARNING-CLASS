@@ -168,8 +168,8 @@ if submitted:
         st.metric("Prediction Result", res)
         st.caption("Predicted COST future return (decimal form). Example: 0.0044 = 0.44%.")
 
-    if st.checkbox("Show SHAP Explanation"):
-        display_explanation(input_df, session, aws_bucket)
+        if st.checkbox("Show SHAP Explanation"):
+            display_explanation(input_df, session, aws_bucket)
 
     else:
         st.error(res)
