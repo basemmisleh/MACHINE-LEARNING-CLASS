@@ -4,7 +4,10 @@ import statsmodels.api as sm
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.preprocessing import PowerTransformer
 from scipy.stats import skew
-from gensim.models import Word2Vec
+try:
+    from gensim.models import Word2Vec
+except ImportError:
+    Word2Vec = None
 
 
 
