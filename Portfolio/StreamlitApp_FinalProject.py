@@ -77,10 +77,9 @@ def load_pipeline(_session, bucket, key):
 
 def load_shap_explainer(_session, bucket, key, local_path):
     s3_client = _session.client('s3')
-    if not os.path.exists(local_path):
-        s3_client.download_file(Filename=local_path, Bucket=bucket, Key=key)
-    # Use joblib to load — matches how it was saved in the notebook
-    return load(local_path)
+    # Always re-download to get the latest version
+    s3_client.download_file(Filename=local_path, Bucket=bucket, Key=key)
+    return joblib.load(local_path)
 
 def call_model_api(input_df):
     predictor = Predictor(
