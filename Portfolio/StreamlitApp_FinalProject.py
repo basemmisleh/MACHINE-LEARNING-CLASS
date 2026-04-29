@@ -122,7 +122,7 @@ def display_explanation(input_df, session, aws_bucket):
 
     # Run preprocessing (imputer only — no scaler/selector in final RF pipeline)
     preprocessing_pipeline = Pipeline(steps=best_pipeline.steps[:-2])
-    input_df_transformed   = preprocessing_pipeline.transform(pd.DataFrame(input_df))
+    input_df_transformed   = preprocessing_pipeline.transform(pd.DataFrame([input_df]))
 
     # Get feature names from dataset columns
     feature_names           = dataset.columns.tolist()
