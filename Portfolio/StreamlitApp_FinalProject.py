@@ -23,14 +23,11 @@ from joblib import load
 # ── Setup ─────────────────────────────────────────────────
 warnings.simplefilter("ignore")
 
-# Path setup for Streamlit Cloud
 current_dir  = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.abspath(os.path.join(current_dir, '..'))
 if project_root not in sys.path:
     sys.path.append(project_root)
 
-# Load X_train from Portfolio folder (professor's approach)
-# This lets us fill all columns while only asking user for top features
 file_path = os.path.join(project_root, 'Portfolio/X_train.csv')
 dataset   = pd.read_csv(file_path)
 dataset   = dataset.loc[:, ~dataset.columns.str.contains('^Unnamed')]
@@ -42,7 +39,6 @@ aws_token    = st.secrets["aws_credentials"]["AWS_SESSION_TOKEN"]
 aws_bucket   = st.secrets["aws_credentials"]["AWS_BUCKET"]
 aws_endpoint = st.secrets["aws_credentials"]["AWS_ENDPOINT"]
 
-# ── AWS Session ───────────────────────────────────────────
 @st.cache_resource
 def get_session(aws_id, aws_secret, aws_token):
     return boto3.Session(
@@ -55,9 +51,6 @@ def get_session(aws_id, aws_secret, aws_token):
 session    = get_session(aws_id, aws_secret, aws_token)
 sm_session = sagemaker.Session(boto_session=session)
 
-# ── Model Configuration ───────────────────────────────────
-# Top 4 features by Random Forest importance from the notebook.
-# The remaining columns are filled from X_train row 0 (professor's pattern).
 MODEL_INFO = {
     "endpoint" : aws_endpoint,
     "explainer": "explainer_loan.shap",
@@ -71,7 +64,6 @@ MODEL_INFO = {
     ]
 }
 
-# ── Load Pipeline from S3 ─────────────────────────────────
 def load_pipeline(_session, bucket, key):
     s3_client = _session.client('s3')
     filename  = MODEL_INFO["pipeline"]
@@ -85,7 +77,6 @@ def load_pipeline(_session, bucket, key):
         joblib_file = [f for f in tar.getnames() if f.endswith('.joblib')][0]
     return joblib.load(joblib_file)
 
-# ── Load SHAP Explainer from S3 ───────────────────────────
 def load_shap_explainer(_session, bucket, key, local_path):
     s3_client = _session.client('s3')
     if not os.path.exists(local_path):
@@ -93,7 +84,6 @@ def load_shap_explainer(_session, bucket, key, local_path):
     with open(local_path, "rb") as f:
         return load(f)
 
-# ── Prediction ────────────────────────────────────────────
 def call_model_api(input_df):
     predictor = Predictor(
         endpoint_name=MODEL_INFO["endpoint"],
@@ -109,7 +99,6 @@ def call_model_api(input_df):
     except Exception as e:
         return f"Error: {str(e)}", 500
 
-# ── SHAP Explanation ──────────────────────────────────────
 def display_explanation(input_df, session, aws_bucket):
     explainer_name = MODEL_INFO["explainer"]
     explainer = load_shap_explainer(
@@ -120,25 +109,33 @@ def display_explanation(input_df, session, aws_bucket):
 
     best_pipeline = load_pipeline(session, aws_bucket, 'sklearn-pipeline-deployment')
 
-    # Run preprocessing (imputer only — no scaler/selector in final RF pipeline)
+    # Apply imputer step only (smote and model are excluded)
     preprocessing_pipeline = Pipeline(steps=best_pipeline.steps[:-2])
     input_df_transformed   = preprocessing_pipeline.transform(pd.DataFrame([input_df]))
+    feature_names          = dataset.columns.tolist()
+    input_df_transformed   = pd.DataFrame(input_df_transformed, columns=feature_names)
 
-    # Get feature names from dataset columns
-    feature_names           = dataset.columns.tolist()
-    input_df_transformed    = pd.DataFrame(input_df_transformed, columns=feature_names)
+    # TreeExplainer returns a list [class_0, class_1] — we use class 1 (Default)
+    shap_vals = explainer.shap_values(input_df_transformed)
+    shap_vals_default = shap_vals[1][0]  # class 1, first row
 
-    shap_values = explainer.shap_values(input_df_transformed)
+    # Build Explanation object for waterfall plot
+    exp = shap.Explanation(
+        values      = shap_vals_default,
+        base_values = explainer.expected_value[1],
+        data        = input_df_transformed.iloc[0].values,
+        feature_names = feature_names
+    )
 
     st.subheader("🔍 Decision Transparency (SHAP)")
     fig, ax = plt.subplots(figsize=(10, 4))
-    shap.plots.waterfall(shap_values[0, :, 1])  # class 1 = Default
+    shap.plots.waterfall(exp, max_display=12, show=False)
     st.pyplot(fig)
 
-    top_feature = pd.Series(
-        shap_values[0, :, 1].values,
-        index=shap_values[0, :, 1].feature_names
-    ).abs().idxmax()
+    top_feature = (
+        pd.Series(shap_vals_default, index=feature_names)
+        .abs().idxmax()
+    )
     st.info(f"**Business Insight:** The most influential factor in this decision was **{top_feature}**.")
 
 # ── Streamlit UI ──────────────────────────────────────────
@@ -166,7 +163,6 @@ with st.form("pred_form"):
 
     submitted = st.form_submit_button("🔮 Run Prediction")
 
-# Fill full row from X_train, override with user inputs (professor's pattern)
 original = dataset.iloc[0:1].to_dict(orient='records')[0]
 original.update(user_inputs)
 
