@@ -20,7 +20,6 @@ import shap
 
 from joblib import load
 
-# ── Setup ─────────────────────────────────────────────────
 warnings.simplefilter("ignore")
 
 current_dir  = os.path.dirname(os.path.abspath(__file__))
@@ -32,7 +31,6 @@ file_path = os.path.join(project_root, 'Portfolio/X_train.csv')
 dataset   = pd.read_csv(file_path)
 dataset   = dataset.loc[:, ~dataset.columns.str.contains('^Unnamed')]
 
-# ── AWS Secrets ───────────────────────────────────────────
 aws_id       = st.secrets["aws_credentials"]["AWS_ACCESS_KEY_ID"]
 aws_secret   = st.secrets["aws_credentials"]["AWS_SECRET_ACCESS_KEY"]
 aws_token    = st.secrets["aws_credentials"]["AWS_SESSION_TOKEN"]
@@ -81,8 +79,8 @@ def load_shap_explainer(_session, bucket, key, local_path):
     s3_client = _session.client('s3')
     if not os.path.exists(local_path):
         s3_client.download_file(Filename=local_path, Bucket=bucket, Key=key)
-    with open(local_path, "rb") as f:
-        return load(f)
+    # Use joblib to load — matches how it was saved in the notebook
+    return load(local_path)
 
 def call_model_api(input_df):
     predictor = Predictor(
@@ -108,24 +106,33 @@ def display_explanation(input_df, session, aws_bucket):
     )
 
     best_pipeline = load_pipeline(session, aws_bucket, 'sklearn-pipeline-deployment')
-
-    # Apply imputer step only (smote and model are excluded)
     preprocessing_pipeline = Pipeline(steps=best_pipeline.steps[:-2])
     input_df_transformed   = preprocessing_pipeline.transform(pd.DataFrame([input_df]))
     feature_names          = dataset.columns.tolist()
     input_df_transformed   = pd.DataFrame(input_df_transformed, columns=feature_names)
 
-    # TreeExplainer returns a list [class_0, class_1] — we use class 1 (Default)
-    shap_vals = explainer.shap_values(input_df_transformed)
-    shap_vals_default = shap_vals[1][0]  # class 1, first row
-
-    # Build Explanation object for waterfall plot
-    exp = shap.Explanation(
-        values      = shap_vals_default,
-        base_values = explainer.expected_value[1],
-        data        = input_df_transformed.iloc[0].values,
-        feature_names = feature_names
-    )
+    # Try TreeExplainer style first, fall back to callable style
+    try:
+        shap_vals         = explainer.shap_values(input_df_transformed)
+        shap_vals_default = shap_vals[1][0]
+        base_val          = explainer.expected_value[1]
+        exp = shap.Explanation(
+            values        = shap_vals_default,
+            base_values   = base_val,
+            data          = input_df_transformed.iloc[0].values,
+            feature_names = feature_names
+        )
+    except Exception:
+        # Callable-style explainer (shap.Explainer)
+        shap_values       = explainer(input_df_transformed)
+        shap_vals_default = shap_values[0, :, 1].values
+        base_val          = shap_values[0, :, 1].base_values
+        exp = shap.Explanation(
+            values        = shap_vals_default,
+            base_values   = base_val,
+            data          = input_df_transformed.iloc[0].values,
+            feature_names = feature_names
+        )
 
     st.subheader("🔍 Decision Transparency (SHAP)")
     fig, ax = plt.subplots(figsize=(10, 4))
@@ -133,12 +140,11 @@ def display_explanation(input_df, session, aws_bucket):
     st.pyplot(fig)
 
     top_feature = (
-        pd.Series(shap_vals_default, index=feature_names)
+        pd.Series(exp.values, index=feature_names)
         .abs().idxmax()
     )
     st.info(f"**Business Insight:** The most influential factor in this decision was **{top_feature}**.")
 
-# ── Streamlit UI ──────────────────────────────────────────
 st.set_page_config(page_title="Loan Default Predictor", layout="wide")
 st.title("🏦 Loan Default Prediction")
 st.markdown(
